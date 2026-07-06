@@ -1,0 +1,96 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  test-all:
+    name: Test PHP ${{ matrix.php-version }}, Redis ${{ matrix.redis-version }}
+
+    runs-on: ${{ matrix.operating-system }}
+
+    strategy:
+      matrix:
+        operating-system: [ubuntu-latest]
+        php-version: ['8.2', '8.3', '8.4']
+        redis-version: ['7.4.5', '8.0.3']
+        include:
+          - operating-system: 'ubuntu-latest'
+            php-version: '8.4'
+            redis-version: '8.0.3'
+            run-sonarqube-analysis: true
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Redis
+        run: |
+          wget http://download.redis.io/releases/redis-${{ matrix.redis-version }}.tar.gz
+          tar xzf redis-${{ matrix.redis-version }}.tar.gz
+          cd redis-${{ matrix.redis-version }}
+          make
+          sudo make install
+
+      - name: Make Redis cluster script executable
+        run: chmod +x ./start-redis-cluster.sh
+
+      - name: Start Redis cluster
+        run: ./start-redis-cluster.sh &
+
+      - name: Setup PHPUnit
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: redis
+          coverage: pcov
+
+      - name: Setup problem matchers for PHP
+        run: echo "::add-matcher::${{ runner.tool_cache }}/php.json"
+
+      - name: Setup problem matchers for PHPUnit
+        run: echo "::add-matcher::${{ runner.tool_cache }}/phpunit.json"
+
+      - name: Get Composer Cache Directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Install composer dependencies
+        run: composer install --prefer-dist
+
+      - name: Run phpunit tests
+        run: composer test
+        env:
+          REDIS_SENTINEL_HOST: 127.0.0.1
+          REDIS_SENTINEL_PORT: 26379
+          REDIS_SENTINEL_SERVICE: service1
+
+      - name: Prepare paths for SonarQube analysis
+        if: ${{ matrix.run-sonarqube-analysis && !github.event.pull_request.head.repo.fork }}
+        run: |
+          sed -i "s|$GITHUB_WORKSPACE|/github/workspace|g" phpunit.coverage-clover.xml
+          sed -i "s|$GITHUB_WORKSPACE|/github/workspace|g" phpunit.report-junit.xml
+
+      - name: Run SonarQube analysis
+        uses: sonarsource/sonarqube-scan-action@v8.2.0
+        if: ${{ matrix.run-sonarqube-analysis && !github.event.pull_request.head.repo.fork }}
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONARCLOUD_TOKEN }}
+
+      - name: Dump docker logs on failure
+        if: failure()
+        uses: jwalton/gh-docker-logs@v2

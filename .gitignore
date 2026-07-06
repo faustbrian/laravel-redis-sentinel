@@ -1,0 +1,9 @@
+/cluster
+/vendor
+.idea
+.php-cs-fixer.cache
+.phpunit.cache
+.phpunit.result.cache
+composer.lock
+phpunit.coverage*.xml
+phpunit.report*.xml

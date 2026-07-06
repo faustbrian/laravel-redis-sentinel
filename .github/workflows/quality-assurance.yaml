@@ -1,0 +1,48 @@
+---
+name: Quality Assurance
+on:
+  push:
+    branches: ['master']
+  pull_request: ~
+
+jobs:
+  tests:
+    name: Tests on ${{ matrix.php }} ${{ matrix.composer-flags }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.5']
+        composer-flags: ['']
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: pcov
+          tools: composer:v2
+      - name: Install dependencies
+        run: composer install --no-progress ${{ matrix.composer-flags }}
+      - name: Run tests with coverage
+        run: vendor/bin/phpunit --testdox --coverage-text
+
+  pint:
+    name: Pint on ${{ matrix.php }} ${{ matrix.composer-flags }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.5']
+        composer-flags: ['']
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:v2
+      - name: Install dependencies
+        run: composer install --no-progress ${{ matrix.composer-flags }}
+      - name: Check code style
+        run: vendor/bin/pint --test
